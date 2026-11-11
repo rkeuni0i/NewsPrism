@@ -1,0 +1,16 @@
+[project]
+name = "newsprism"
+version = "0.1.0"
+description = "같은 사건을 다룬 여러 언론사 기사를 비교하는 LangGraph 멀티에이전트"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=1.0",
+    "google-genai>=1.0",
+    "pydantic>=2.0",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "requests",
+    "feedparser",
+    "trafilatura",
+]

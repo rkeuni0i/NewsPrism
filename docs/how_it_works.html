@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NewsPrism 동작 방식</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  :root { --font:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif; --bg:#f6f7f9; --card:#fff; --ink:#14181f; --sub:#454d5a; --mute:#7a8391; --line:#e6e8ec; --soft:#f1f3f6; --accent:#243bb5; --accent-soft:#e9edfb; --code:#8a4b00; --code-bg:#fdf3e4; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#171a21; --ink:#eceef2; --sub:#c2c8d2; --mute:#8b94a3; --line:#262b35; --soft:#1e232d; --accent:#8fa2ff; --accent-soft:#222a4a; --code:#f0b36b; --code-bg:#2b2318; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.7 var(--font); -webkit-font-smoothing:antialiased; letter-spacing:-.01em; }
+  .wrap { max-width:960px; margin:0 auto; padding:36px 16px 80px; }
+  h1 { margin:0; font-size:27px; letter-spacing:-.03em; } h1 span { color:var(--accent); }
+  .lead { margin:6px 0 0; color:var(--mute); }
+  h2 { margin:44px 0 6px; font-size:20px; letter-spacing:-.02em; }
+  h2 small { font-weight:500; color:var(--mute); font-size:14px; margin-left:8px; }
+  .intro { color:var(--sub); margin:0 0 14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin-top:12px; }
+  code { font:12.5px/1.2 ui-monospace,Consolas,monospace; color:var(--code); background:var(--code-bg); padding:2px 6px; border-radius:5px; white-space:nowrap; }
+  .m { color:var(--mute); font-size:13px; }
+
+  /* 타임라인 */
+  .tl { list-style:none; margin:0; padding:0; }
+  .tl li { display:grid; grid-template-columns:92px 1fr; gap:14px; padding:11px 0; border-top:1px solid var(--line); }
+  .tl li:first-child { border-top:0; }
+  .who { align-self:start; text-align:center; font-size:12px; font-weight:700; padding:3px 0; border-radius:6px; background:var(--soft); color:var(--sub); }
+  .who.br { background:var(--accent-soft); color:var(--accent); }
+  .who.ag { background:var(--accent); color:#fff; }
+  .who.ex { border:1px dashed var(--mute); background:none; color:var(--mute); }
+  .who.ca { background:var(--code-bg); color:var(--code); }
+  .tl p { margin:0; } .tl .d { color:var(--mute); font-size:13.5px; margin-top:2px; }
+  .tl ul { margin:4px 0 0; padding-left:18px; color:var(--sub); font-size:14px; } .tl ul li { display:list-item; padding:1px 0; border:0; grid-template-columns:none; }
+  @media (max-width:600px) { .tl li { grid-template-columns:1fr; gap:4px; } .who { justify-self:start; padding:2px 10px; } }
+
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-weight:600; font-size:13px; }
+  .key { display:flex; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--mute); margin-top:10px; }
+  .key span { display:inline-flex; align-items:center; gap:6px; } .key .who { padding:1px 10px; }
+  .note { margin-top:12px; padding:12px 14px; border-left:3px solid var(--accent); background:var(--soft); border-radius:0 8px 8px 0; font-size:14px; color:var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>News<span>Prism</span> 동작 방식</h1>
+  <p class="lead">버튼을 눌렀을 때 브라우저, 서버, 에이전트가 어떤 순서로 움직이는지 정리했습니다. 코드(app.py, graph.py, nodes/, tools/)를 기준으로 썼습니다.</p>
+
+  <div class="card">
+    <div class="key"><span><i class="who br">브라우저</i>화면(index.html)</span><span><i class="who">서버</i>FastAPI(app.py)</span><span><i class="who ag">에이전트</i>LLM을 호출하는 노드</span><span><i class="who ex">외부</i>SerpApi, 구글 뉴스, 언론사 사이트</span><span><i class="who ca">캐시</i>samples/cache 파일</span></div>
+  </div>
+
+  <h2>구성 한눈에 보기</h2>
+  <p class="intro">서버는 FastAPI 하나이고, 분석은 LangGraph로 만든 에이전트 파이프라인이 맡습니다.</p>
+  <div class="card">
+    <table>
+      <tr><th>API</th><th>언제 호출되나</th><th>LLM 사용</th></tr>
+      <tr><td><code>GET /</code></td><td>페이지를 열 때</td><td>없음</td></tr>
+      <tr><td><code>GET /api/headlines?limit=N</code></td><td>첫 화면(5건), "더보기"(20건). 새로고침 아이콘은 <code>&amp;refresh=1</code>을 붙여 캐시를 건너뜀</td><td>없음</td></tr>
+      <tr><td><code>GET /api/summary/{id}</code></td><td>주요 뉴스 카드마다 (요약 채우기)</td><td>기사당 1회</td></tr>
+      <tr><td><code>GET /api/search?q=</code></td><td>검색창에서 검색할 때</td><td>없음</td></tr>
+      <tr><td><code>POST /api/jobs</code></td><td>"여러 시선으로 보기"를 누를 때 (주요 뉴스 카드에서는 카드 id도 함께 보냄)</td><td>분석 전체(약 25회 안팎)</td></tr>
+      <tr><td><code>GET /api/jobs/{id}</code></td><td>분석 중 1.5초마다 (진행 상황 확인). 저장된 결과도 이 주소로 열린다</td><td>없음</td></tr>
+      <tr><td><code>GET /api/analyses</code></td><td>최근 분석 기록 목록</td><td>없음</td></tr>
+    </table>
+  </div>
+
+  <h2>1. 페이지를 열었을 때<small>자동 실행</small></h2>
+  <p class="intro">화면이 뜨자마자 주요 뉴스 5건과 각 요약이 채워집니다.</p>
+  <div class="card"><ol class="tl">
+    <li><span class="who br">브라우저</span><div><p><code>GET /</code>로 index.html을 받는다.</p><p class="d">글꼴(Pretendard)은 CDN에서 불러온다.</p></div></li>
+    <li><span class="who br">브라우저</span><div><p><code>GET /api/headlines?limit=5</code>를 호출한다.</p></div></li>
+    <li><span class="who ca">캐시</span><div><p>구글 뉴스 주요기사 결과가 30분 이내에 저장된 것이면 그대로 쓴다.</p><p class="d">30분이 지났으면 아래 단계에서 새로 받는다.</p></div></li>
+    <li><span class="who ex">외부</span><div><p>SerpApi로 구글 뉴스 주요기사를 받는다. 구글이 같은 사건 기사를 묶어서 준다.</p></div></li>
+    <li><span class="who">서버</span><div><p>받은 묶음을 정리한다.</p><ul>
+      <li>묶음마다 대표 기사 1건을 정하고 보도한 언론사 목록을 만든다.</li>
+      <li>"이 시각 헤드라인", "브리핑" 같은 종합 기사는 대표와 집계에서 뺀다.</li>
+      <li>언론사 이름을 통일한다. (KBS 뉴스, KBS뉴스 → KBS)</li>
+      <li>보도 언론사가 많은 사건 순으로 순위를 매긴다. 제목이 비슷한 묶음은 한 사건으로 합친다.</li>
+      <li>5건이 안 되면 구글 뉴스 RSS 주요기사(10분 메모리 캐시)로 부족분을 채운다. 이쪽은 사진이 없다.</li>
+    </ul></div></li>
+    <li><span class="who">서버</span><div><p>항목마다 id를 붙여 서버 메모리에 보관하고(묶음에 속한 기사 전체 포함) 목록을 돌려준다. 응답 헤더 <code>X-Fetched-At</code>에는 데이터를 실제로 받아 온 시각이 들어간다.</p></div></li>
+    <li><span class="who br">브라우저</span><div><p>1순위는 큰 카드, 2~5순위는 작은 카드로 그린다. 제목 옆에 "MM/DD HH:mm 기준"(데이터를 받은 시각)을 표시하고, 요약 자리는 회색 막대로 비워 둔다.</p><p class="d">오른쪽의 새로고침 아이콘을 누르면 캐시를 건너뛰고 SerpApi와 RSS에서 새로 받아 온다. (누를 때마다 SerpApi 1회 사용)</p></div></li>
+    <li><span class="who br">브라우저</span><div><p>카드마다 <code>GET /api/summary/{id}</code>를 호출한다. 서버 부담을 줄이려고 한 번에 4개까지만 요청한다.</p></div></li>
+    <li><span class="who ca">캐시</span><div><p>이미 만든 요약(<code>summary_*.json</code>)이 있으면 바로 돌려준다.</p></div></li>
+    <li><span class="who ex">외부</span><div><p>없으면 기사 원문 주소를 복원하고 본문을 내려받는다. (결과는 <code>article_*.json</code>에 캐시)</p></div></li>
+    <li><span class="who ag">에이전트</span><div><p><b>요약 에이전트</b>가 본문을 읽고 두 문장으로 요약한다. (LLM 1회)</p><p class="d">본문을 못 가져온 기사(유료·차단)는 지어내지 않고 요약을 비워 두며, 이 경우 카드에서 요약 영역이 사라진다. 실패는 캐시하지 않아 다음에 다시 시도한다.</p></div></li>
+  </ol></div>
+
+  <h2>2. "더보기"를 눌렀을 때</h2>
+  <div class="card"><ol class="tl">
+    <li><span class="who br">브라우저</span><div><p>전체 목록 화면으로 바꾸고 <code>GET /api/headlines?limit=20</code>을 호출한다. (처음 한 번만. 다시 열면 받아 둔 것을 쓴다)</p></div></li>
+    <li><span class="who">서버</span><div><p>1번과 같은 과정으로 최대 20건을 순위대로 만든다. 사진이 있는 구글 뉴스 묶음이 먼저, RSS로 보충한 항목이 뒤에 온다.</p></div></li>
+    <li><span class="who br">브라우저</span><div><p>목록을 그리고 각 항목의 요약을 1번과 같은 방식(4개씩, 캐시 우선)으로 채운다.</p></div></li>
+  </ol>
+  <div class="note">처음 열 때는 아직 요약이 없는 항목이 많아서, 위에서부터 차례로 채워집니다. 한 번 만든 요약은 캐시에 남아 다음부터 즉시 나옵니다.</div></div>
+
+  <h2>3. 오른쪽 위 돋보기로 검색했을 때</h2>
+  <div class="card"><ol class="tl">
+    <li><span class="who br">브라우저</span><div><p>검색 패널을 열고, 입력 후 엔터 또는 예시 버튼을 누르면 <code>GET /api/search?q=키워드</code>를 호출한다.</p></div></li>
+    <li><span class="who">서버</span><div><p><code>search(q, 30)</code>을 실행한다.</p><ul>
+      <li>SerpApi 키가 있으면: 네이버 뉴스와 구글 뉴스 결과를 번갈아 섞어 30건까지 만든다.</li>
+      <li>키가 없거나 실패하면: 구글 뉴스 RSS로 대신한다.</li>
+    </ul></div></li>
+    <li><span class="who ca">캐시</span><div><p>같은 키워드는 저장된 결과를 다시 쓴다. (검색 결과는 만료 시간이 없다)</p></div></li>
+    <li><span class="who br">브라우저</span><div><p>제목, 언론사, 몇 시간 전인지를 목록으로 보여준다. LLM은 쓰지 않는다.</p></div></li>
+  </ol></div>
+
+  <h2>4. "여러 시선으로 보기"를 눌렀을 때<small>핵심 기능</small></h2>
+  <p class="intro">주요 뉴스 카드, 더보기 목록, 검색 결과 중 어디서 눌러도 같습니다. 그 기사의 <b>제목</b>을 키워드로 삼아 분석합니다.</p>
+  <div class="card"><ol class="tl">
+    <li><span class="who br">브라우저</span><div><p>분석 화면으로 바꾸고 <code>POST /api/jobs</code>에 <code>{"query": 제목}</code>을 보낸다.</p></div></li>
+    <li><span class="who ca">저장소</span><div><p>같은 기사를 12시간 안에 이미 분석했다면(SQLite <code>data/newsprism.db</code>) LLM을 다시 돌리지 않고 저장된 결과를 바로 돌려준다. 결과 화면의 "다시 분석하기"는 <code>refresh=true</code>로 새로 분석한다.</p></div></li>
+    <li><span class="who">서버</span><div><p>저장된 결과가 없으면 작업 id를 만들어 작업표(JOBS)에 "진행 중"으로 올리고, 카드 id가 있으면 그 사건 묶음의 기사들을 "씨앗 기사"로 꺼내 둔 뒤 <b>별도 스레드</b>에서 분석을 시작한 뒤 id를 바로 돌려준다.</p><p class="d">그래서 분석이 1~2분 걸려도 화면이 멈추지 않는다.</p></div></li>
+    <li><span class="who br">브라우저</span><div><p>1.5초마다 <code>GET /api/jobs/{id}</code>로 진행 상황을 묻고 단계 표시와 진행 막대를 갱신한다.</p></div></li>
+  </ol></div>
+
+  <h2>에이전트는 언제, 어떻게 움직이나<small>작업 스레드 안</small></h2>
+  <p class="intro">아래는 서버의 작업 스레드에서 LangGraph가 실행하는 순서입니다. 노드가 하나 끝날 때마다 화면의 진행 단계가 바뀝니다.</p>
+  <div class="card"><ol class="tl">
+    <li><span class="who ag">1단계</span><div><p><b>기사 수집</b> (<code>collect_articles</code>) · 화면 표시: "기사 수집"</p><ul>
+      <li>후보를 모은다: ① 카드에서 시작했다면 구글이 이미 같은 사건으로 묶어 둔 기사(씨앗 기사) ② 말머리([속보])와 따옴표를 뺀 제목으로 검색한 40건.</li>
+      <li>모인 언론사가 5곳 미만이면 LLM이 짧은 검색어 2~3개를 만들어 추가로 검색한다. (LLM 1회, 조건부) 만든 검색어는 파일에 저장해 같은 기사에는 다시 쓴다.</li>
+      <li>언론사마다 사건과 제목이 가장 비슷한 기사 1건을 고른 뒤, 최대 12곳을 중요도 순으로 고른다. 우선순위는 ① 카드가 묶어 준 언론사 ② 제목이 사건과 비슷한 기사 ③ 주요 언론사(종합지·방송·주요 경제지) ④ 제목 유사도이다.</li>
+      <li>10건의 원문 주소를 복원하고 본문을 동시에 내려받는다. (캐시에 있으면 건너뜀)</li>
+      <li>LLM 1회: 제목들을 보고 가장 많이 다뤄진 하나의 사건을 "기준 사건"으로 정한다.</li>
+    </ul></div></li>
+    <li><span class="who ag">2단계</span><div><p><b>주제 판정</b> (<code>judge_topic</code>) · "같은 주제 판정"</p><ul>
+      <li>기사 수만큼 <b>동시에</b> 실행된다. (10건이면 LLM 10회 병렬)</li>
+      <li>각 기사가 기준 사건과 같은 사건인지 "예/아니오"와 근거를 낸다.</li>
+    </ul></div></li>
+    <li><span class="who">3단계</span><div><p><b>기사 거르기</b> (<code>filter_articles</code>) · 코드</p><ul>
+      <li>"예"인 기사만 남긴다.</li>
+      <li>남은 기사가 2건 미만이면 분석을 접고 "비교할 수 없다" 안내(<code>no_report</code>)로 끝낸다.</li>
+    </ul></div></li>
+        <li><span class="who ag">단독 보도</span><div><p><b>같은 주제 기사가 정확히 1건</b>이고 본문이 있으면 4~7단계 대신 아래 경로로 간다. (화면의 진행 단계도 바뀐다)</p><ul>
+      <li><code>single_factcheck</code>: 핵심 주장 6~10개와 근거 문장, 출처 유형을 뽑고 근거 문장이 본문에 있는지 코드로 확인한다. (LLM 1회)</li>
+      <li><code>single_research</code>: 검색어로 <b>다른 언론사</b> 관련 기사를 최대 8건 찾아 본문을 가져오고, 주장마다 교차 확인됨 / 일부 확인 / 확인 불가 / 다른 정보 있음으로 나눈다. 판정마다 그 기사에서 가져온 문장을 붙이고, 인용문이 자료에 실제로 없으면 인정하지 않는다. 배경과 다른 관점도 함께 고른다. (LLM 1회 + 뉴스 검색)</li>
+      <li><code>write_single</code>: 보도 내용, 교차 확인 결과, 배경과 맥락, 다른 관점, 함께 생각해 볼 점으로 새 요약 기사를 쓴다. 원 기사가 틀렸다고 판정하지 않고 모든 문장에 출처를 밝힌다. 단독 보도라는 안내는 코드가 따로 붙인다. (LLM 1회)</li>
+      <li><code>check_single</code>: 원문 근거와 표현·출처 표기를 검사한다. 통과하지 못하면 다시 쓴다(최대 2회). (LLM 2회 동시)</li>
+      <li>결과 화면은 새 기사, 팩트체크(판정과 인용), 배경과 다른 관점, 참고한 기사, 검증 순서로 보인다. 외부 자료가 뉴스 검색 결과에 한정된다는 점도 함께 표시한다.</li>
+    </ul></div></li>
+    <li><span class="who ag">4단계</span><div><p><b>기사별 분석</b> (<code>analyze_article</code>) · "기사별 분석"</p><ul>
+      <li>남은 기사 수만큼 <b>동시에</b> 실행된다. (LLM 기사당 1회)</li>
+      <li>핵심 주장, 강조한 사실과 근거 문장, 인용 출처, 어조를 뽑는다.</li>
+      <li>근거 문장이 본문에 글자 그대로 없으면 코드가 버린다.</li>
+    </ul></div></li>
+    <li><span class="who ag">5단계</span><div><p><b>비교</b> (<code>compare_articles</code>) · "비교"</p><ul>
+      <li>모든 분석을 한 번에 넣고 LLM 1회로 공통 사실, <b>주요 쟁점</b>(누가 어떤 입장인지), 질문을 만든다.</li>
+      <li>과반 미만이 보도한 "공통 사실"은 코드가 "일부만 다룬 내용"으로 내린다.</li>
+    </ul></div></li>
+    <li><span class="who ag">6단계</span><div><p><b>중립 요약</b> (<code>write_summary</code>) · "중립 요약 작성"</p><ul><li>비교 결과로 5문장 이내 요약을 쓴다. (LLM 1회) 다시 쓰는 경우에는 검증이 지적한 문제를 함께 받는다.</li></ul></div></li>
+    <li><span class="who ag">7단계</span><div><p><b>팩트·편향 검증</b> (<code>check_bias</code>) · "팩트·편향 검증"</p><ul>
+      <li>LLM 2회를 <b>동시에</b>: 요약을 주장 단위로 쪼개 기사에 근거가 있는지 확인하고, 평가·감정 표현과 한쪽 편중을 채점한다.</li>
+      <li>통과하면 8단계로. 통과하지 못하면 6단계로 돌아가 다시 쓴다.</li>
+      <li>다시 쓰기는 최대 2회까지이고, 그래도 통과하지 못하면 미통과 표시를 붙인 채 내보낸다.</li>
+    </ul></div></li>
+    <li><span class="who">8단계</span><div><p><b>리포트 조립</b> (<code>build_report</code>) · "리포트 조립" · 코드</p><ul><li>결과를 하나로 묶는다. 서버는 작업표의 상태를 "완료"로 바꾸고 결과를 저장한다.</li></ul></div></li>
+    <li><span class="who br">브라우저</span><div><p>다음 확인 때 "완료"를 받으면 진행 화면을 닫고 결과를 그린다.</p><ul><li>한눈에 보기, 모두가 전한 사실, 주요 쟁점, 함께 생각해 봐요, 비교한 기사, 중립성 검증</li></ul></div></li>
+  </ol>
+  <div class="note"><b>LLM 호출 횟수(기사 10건 기준):</b> 기준 사건 1 + 주제 판정 10 + 기사별 분석 최대 10 + 비교 1 + 요약 1 + 검증 2 = 약 25회. 검증에 실패해 다시 쓸 때마다 (요약 1 + 검증 2)가 더해집니다.</div></div>
+
+  
+  <h2>5. 분야(카테고리) 탭을 눌렀을 때</h2>
+  <p class="intro">주요 탭을 제외한 7개 탭(정치, 경제, 사회, 세계, IT·과학, 생활·문화, 스포츠)은 하루에 한 번 만든 목록을 보여줍니다.</p>
+  <div class="card"><ol class="tl">
+    <li><span class="who br">브라우저</span><div><p><code>GET /api/headlines?category=분야</code>를 호출한다. 새로고침 아이콘은 주요 탭에서만 보이고, 서버도 다른 분야의 새로고침 요청은 무시한다.</p></div></li>
+    <li><span class="who ca">캐시</span><div><p>오늘 날짜의 <code>cat_분야_날짜.json</code>이 있으면 그대로 돌려준다.</p></div></li>
+    <li><span class="who ex">외부</span><div><p>없으면(그날 첫 요청이거나 서버가 막 켜졌을 때) 구글 뉴스 8개 섹션 RSS에서 섹션마다 상위 40건씩 가져와, 제목이 비슷한 기사는 하나로 합친다.</p></div></li>
+    <li><span class="who ag">분류</span><div><p>LLM이 약 230건을 60건씩 묶어 4회 동시에 분류한다. 구글이 붙인 분야는 힌트로만 쓰고, 세계·스포츠 섹션은 그대로 확정한다.</p><ul>
+      <li>기사마다 주 분야 1개와, 중심 내용이 다른 분야에도 실제로 걸칠 때만 부 분야 1개를 정한다.</li>
+      <li>국내 기사에 "대통령", "국회" 같은 명백한 정치 단어가 있으면 코드가 정치로 확정한다.</li>
+      <li>각 분야 목록은 상위 5건이 주 분야 기사만이고, 6번째부터 부 분야로 걸린 기사가 중요도 순으로 섞인다. 카드에는 "세계 · 경제"처럼 분야 표시가 붙는다.</li>
+    </ul></div></li>
+    <li><span class="who ex">외부</span><div><p>저장하는 20건에 원문 주소와 대표 사진(og:image)을 채운다. (결과는 <code>thumb_*.json</code>에 캐시)</p></div></li>
+    <li><span class="who">서버</span><div><p>서버가 켜지면 백그라운드 작업이 7개 분야를 미리 만들고 상위 5건의 요약도 만들어 둔다. 30분마다 날짜가 바뀌었는지 확인한다.</p></div></li>
+  </ol></div>
+
+  
+  <h2>처리 시간과 안정성을 위한 구조</h2>
+  <p class="intro">LLM 서비스가 간헐적으로 80~100초씩 멈추는 것이 측정되어(정상 호출은 3초 안팎), 아래와 같이 대응합니다. 서비스 상태에 따라 분석 시간은 1~3분 사이에서 크게 달라질 수 있습니다.</p>
+  <div class="card">
+    <table>
+      <tr><th>대응</th><th>내용</th></tr>
+      <tr><td>멈춘 호출 재요청</td><td><code>llm.py</code>: 요청 크기에 따라 6~30초 안에 응답이 없으면 같은 요청을 한 번 더 보내 먼저 오는 쪽을 쓴다. 실패하면 최대 3회까지 다시 시도하고, 130초가 넘으면 포기한다.</td></tr>
+      <tr><td>판정과 분석을 동시에</td><td><code>process_article</code>: 기사 1건의 "같은 사건인지 판정"과 "기사별 분석"을 동시에 실행해 LLM 단계 하나를 없앤다. 판정에서 제외된 기사의 분석은 버려진다.</td></tr>
+      <tr><td>기준 사건 생략</td><td>주요 사건 카드에서 시작한 분석은 헤드라인을 기준 사건으로 그대로 써서 LLM 호출 하나를 아낀다.</td></tr>
+      <tr><td>기사 하나의 실패 허용</td><td>기사 하나의 판정·분석이 끝내 실패하거나 응답을 해석하지 못해도 전체 분석은 계속한다. (그 기사만 제외)</td></tr>
+      <tr><td>재작성 줄이기</td><td>검증이 "근거 없는 문장"이나 "틀린 언론사 이름"만 지적한 경우, LLM으로 요약을 다시 쓰지 않고 코드가 그 문장·이름을 빼서 바로 통과시킨다. 고친 내용은 결과 화면에 표시한다. 재작성 1라운드는 요약과 검증을 합쳐 40~60초가 든다.</td></tr>
+      <tr><td>정확한 재작성 지시</td><td>검증이 "어느 언론사 표기가 틀렸고 근거가 확인된 언론사는 어디인지"까지 알려 준다. 인용문 비교는 물결표·따옴표·공백 차이를 같은 문장으로 본다.</td></tr>
+    </table>
+  </div>
+
+  <h2>캐시가 쓰이는 곳</h2>
+  <div class="card">
+    <table>
+      <tr><th>대상</th><th>저장 위치</th><th>만료</th></tr>
+      <tr><td>구글 뉴스 주요기사(SerpApi)</td><td><code>samples/cache</code></td><td>30분 (새로고침 아이콘은 즉시 갱신)</td></tr>
+      <tr><td>키워드 검색 결과(SerpApi, RSS)</td><td><code>samples/cache</code></td><td>없음</td></tr>
+      <tr><td>기사 본문(<code>article_*</code>)</td><td><code>samples/cache</code></td><td>없음 (제목·요약만 얻은 기사는 저장 안 함)</td></tr>
+      <tr><td>주요 뉴스 요약(<code>summary_*</code>)</td><td><code>samples/cache</code></td><td>없음 (실패한 것은 저장 안 함)</td></tr>
+      <tr><td>분야별 목록(<code>cat_*</code>)</td><td><code>samples/cache</code></td><td>하루 1회 (날짜가 바뀌면 새 파일)</td></tr>
+      <tr><td>기사 대표 사진(<code>thumb_*</code>)</td><td><code>samples/cache</code></td><td>없음</td></tr>
+      <tr><td>RSS 주요기사</td><td>서버 메모리</td><td>10분</td></tr>
+      <tr><td>끝난 분석 결과</td><td>SQLite <code>data/newsprism.db</code></td><td>영구 저장 (같은 기사는 12시간 안에 재사용, <code>#job=번호</code> 주소로 다시 열기)</td></tr>
+      <tr><td>분석 작업의 진행 상태, 주요 뉴스 id 목록</td><td>서버 메모리</td><td>서버를 끄면 사라짐</td></tr>
+    </table>
+    <p class="m" style="margin:12px 0 0">캐시를 무시하고 새로 받으려면 <code>NEWS_NO_CACHE=1</code> 환경변수를 설정합니다. LLM 분석 결과(2~7단계)는 캐시하지 않아 분석할 때마다 새로 계산합니다.</p>
+  </div>
+
+  <h2>실패했을 때</h2>
+  <div class="card">
+    <table>
+      <tr><th>상황</th><th>동작</th></tr>
+      <tr><td>SerpApi 호출 실패</td><td>구글 뉴스 RSS로 자동 전환</td></tr>
+      <tr><td>본문 추출 실패(유료·차단)</td><td>우회하지 않고 제목+요약만 사용. 결과 화면의 기사 칩에 "제목·요약만"으로 표시</td></tr>
+      <tr><td>요약 생성 실패</td><td>그 카드의 요약만 생략. 화면은 계속 동작</td></tr>
+      <tr><td>분석 중 오류</td><td>작업 상태가 "오류"가 되고 화면에 오류 내용을 표시</td></tr>
+      <tr><td>같은 주제 기사 2건 미만</td><td>"비교할 수 없어요" 안내. 수집한 기사 수와 언론사 목록, 다른 키워드로 검색해 보라는 안내를 함께 표시</td></tr>
+      <tr><td>언론사 이름이 제각각 (KBS / KBS 뉴스, Ohmy / 오마이뉴스)</td><td>수집 단계에서 별칭표(<code>OUTLET_ALIAS</code>)로 대표 이름 하나로 통일</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>
